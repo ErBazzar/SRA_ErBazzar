@@ -1,0 +1,529 @@
+
+---------------------------------------
+TurtleBot3 class Release Notes (v09d)
+---------------------------------------
+Autonomous Robotic Systems 2023
+Department of Electrical and Computer Engineering
+University of Coimbra, Portugal
+Pedro Martins, pedromartins@isr.uc.pt
+
+
+# ----------------------------------------------------------------------------- 
+# Overview of Available Methods
+# ----------------------------------------------------------------------------- 
+
+# ---------------------------
+## --- Constructor --- 
+# ---------------------------
+tbot = TurtleBot3();
+tbot = TurtleBot3(IP_TURTLEBOT, IP_HOST_COMPUTER);   % <- recomended approach 
+
+# setup custom sensors-state message (support only in Linux64 and MacOS systems)
+tbot = TurtleBot3('check-versions');                % see package versions 
+tbot = TurtleBot3('setup-path');                    % setup PATH locations  
+tbot = TurtleBot3('setup-sensors-msg');             % setup sensors-state custom message 
+tbot = TurtleBot3('check-sensors-msg');             % check if message is available
+
+# ---------------------------
+## --- Query system ---
+# ---------------------------
+% get version number
+vs = tbot.getVersion(); 
+
+% get wheel baseline (distance between wheels) [in meters]
+baseline = tbot.getWheelBaseline();
+
+% get wheel radius [in meters]
+radius = tbot.getWheelRadius();
+
+% get the 3D Gazebo Map basename (map loaded at simulator startup).
+mapName = tbot.getGazeboMapName();
+
+% get number of encoder ticks per revolution
+tk = tbot.getNumberTicksPerRevolution();
+
+% return true if TurtleBot object is connected to a real robot, false otherwise 
+flag = tbot.isRealRobot();
+
+% get Battery Level (in percentage: [0, 1])
+percentage = tbot.getBatteryLevel();
+
+# ---------------------------
+## --- Robot control ---
+# ---------------------------
+% send linear and angular velocity commands to robot  
+tbot.setVelocity(v, w);
+
+% stop robot 
+tbot.stop();
+
+% read 2D pose + timestamp
+[x, y, theta, ptimestamp] = tbot.readPose();
+
+% read 2D pose + timestamp (overload of readPose)
+[x, y, theta, ptimestamp] = tbot.getPose();
+
+% define/overwrite pose of robot 
+tbot.setPose(x, y, theta);
+
+% reset pose: (x,y,theta) = (0,0,0) 
+tbot.resetPose();
+
+# ---------------------------
+## --- Read sensors ---
+# ---------------------------
+% init Encoders module
+tbot.initEncoders();
+
+% read (simulated) encoders data 
+[dsr, dsl, pose2D, timestamp] = tbot.readEncoders();
+
+% read (simulated) encoders data (overload of readEncoders)
+[dsr, dsl, pose2D, timestamp] = tbot.getEncodersData();
+
+% read (simulated) encoders data + Gaussian Noise
+[dsr, dsl, pose2D, timestamp] = tbot.readEncodersWithNoise(noise_std);
+
+% read (simulated) encoders data + Gaussian Noise (overload of readEncodersWithNoise)
+[dsr, dsl, pose2D, timestamp] = tbot.getEncodersDataWithNoise(noise_std);
+
+% read (real) encoders ticks - only available w/ connected to the real Robot
+[left_ticks, right_ticks, timestamp] = tbot.readEncodersTicks();
+
+% read (real) encoders ticks - only available w/ connected to the real Robot (overload of readEncodersTicks)
+[left_ticks, right_ticks, timestamp] = tbot.getEncodersDataTicks();
+
+% read lidar data
+[scanMsg, lddata, ldtimestamp] = tbot.readLidar();
+
+% read lidar data (overload of readLidar)
+[scanMsg, lddata, ldtimestamp] = tbot.getLidarData();
+
+% in of range lidar data indexs (obstacles)
+[vidx] = tbot.getInRangeLidarDataIdx(lddata, maxRange);
+
+% out of range lidar data indexs (free angles)
+[nidx] = tbot.getOutRangeLidarDataIdx(lddata, maxRange);
+
+% read inertial data
+[imuMsg, a, w, angles] = tbot.readIMU();
+
+% read inertial data (overload of readIMU)
+[imuMsg, a, w, angles] = tbot.getIMUData();
+
+% read compass orientation data (IMU) 
+[phi, angles] = tbot.readCompass();
+
+% read compass orientation data (IMU) (overload of readCompassData)
+[phi, angles] = tbot.getCompassData();
+
+# ---------------------------
+## --- Gazebo control ---
+# ---------------------------
+
+% place 3D cube in Gazebo simulator
+tbot.gazeboPlace3DCube(x, y, orientation, edgeSize, color);
+
+% place 3D cylinder in Gazebo simulator
+tbot.gazeboPlace3DCylinder(x, y, radius, length, color);
+
+% place 3D cardboard box in Gazebo simulator
+tbot.gazeboPlace3DCardboardBox(x, y, orientation, color);
+
+% deletes all supported 3D objects in Gazebo simulator
+tbot.gazeboDeleteAllModels();
+
+% pause Gazebo physics simulation
+tbot.gazeboPause();
+
+% resume Gazebo physics simulation
+tbot.gazeboResume();
+
+% resume Gazebo physics simulation (overload of tbot.gazeboResume)
+tbot.gazeboUnPause();
+
+
+
+# ----------------------------------------------------------------------------- 
+# 3D Maps Notes
+# ----------------------------------------------------------------------------- 
+
+-------------------------------------------------
+Maps files:
+-------------------------------------------------
+
+TEN maps are provided, with names: {bxmap, csqmap, fmap, lcmap, rmap, scmap, stmap, umap, xmap and ymap}.
+In almost all cases, the working area is 4x4 meters (however the 'rmap' has an rectangular area of 6x4 meters). Several occupation grids are available: 
+
+- "map"_grid1.png -> each image pixel represents 1x1 cm of working area (400x400x3 image).
+- "map"_grid5.png -> each image pixel represents 5x5 cm of working area (80x80x3 image).
+- "map"_grid10.png -> each image pixel represents 10x10 cm of working area (40x40x3 image).
+
+Each map also contains a .svg file (map image in vector format) and the corresponding 3D model to load in the Gazebo simulator (folder "gzb_models"). 
+
+
+-------------------------------------------------
+3D Maps Installation:
+-------------------------------------------------
+
+[Install]: 
+1) Copy the entire "maps" folder to the virtual machine (to any location): 
+- Some virtual machines support simple drag-and-drop functionality.  
+- Windows users can use WinSCP (https://winscp.net/) to copy data between you computer and the virtual machine (use a sftp connection). 
+- MacOs users can use the free Cyberduck App. 
+- Linux users just need to write in the location path: sftp://user@192.168.1.xxx (replace with the IP of virtual machine). 
+    
+2) Open terminal, navigate to the directory location of the maps folder, and run the install script as:   
+>> user@ubuntu:~$ sh install_maps.sh
+The message "---done---" should appear upon a successful installation. 
+The home folder (/home/user) should hold ten new scripts (start-gazebo-"map".sh). 
+
+
+[Uninstall]: 
+Similarly, all maps and respective configuration files can be removed by running the uninstall script. 
+>> user@ubuntu:~$ sh uninstall_maps.sh
+
+
+-------------------------------------------------
+Start up Gazebo+ROS with a 3D map 
+-------------------------------------------------
+
+Run, in the command line, the script associated with the desired map:    
+
+>> user@ubuntu:~$ ./start-gazebo-bxmap.sh 
+>> user@ubuntu:~$ ./start-gazebo-csqmap.sh 
+>> user@ubuntu:~$ ./start-gazebo-fmap.sh
+>> user@ubuntu:~$ ./start-gazebo-lcmap.sh
+>> user@ubuntu:~$ ./start-gazebo-rmap.sh        # rectangular map
+>> user@ubuntu:~$ ./start-gazebo-scmap.sh       # <- use this map lab 04
+>> user@ubuntu:~$ ./start-gazebo-stmap.sh
+>> user@ubuntu:~$ ./start-gazebo-umap.sh    
+>> user@ubuntu:~$ ./start-gazebo-xmap.sh
+>> user@ubuntu:~$ ./start-gazebo-ymap.sh        
+
+-------------------------------------------------
+Manually place a 3D map in Gazebo (only if required)
+-------------------------------------------------
+
+Start up Gazebo+ROS with a empty world: user@ubuntu:~$ ./start-gazebo-empty.sh 
+
+Stop the simulation (in the bottom-left "play" button).
+
+Click in the "Insert Tab" in the left menu (search) and select the desired map.  
+Upon loading the model, manual placing (with the mouse) is required. Place it anywhere. 
+In order to match the 3D model of the map with the 2D grid projections the following pose offsets are required:
+
+- bxmap: pose offset: x = 2; y = 2; z = 0 (meters)
+- csqmap: pose offset: x = 2; y = 2; z = 0 (meters)       
+- fmap: pose offset: x = 2.1; y = 2.1; z = 0 (meters)
+- lcmap: pose offset: x = 2; y = 2; z = 0 (meters)
+- rmap: pose offset: x = 3; y = 2; z = 0 (meters)       # rectangular map: 6 x 4 m
+- scmap: pose offset: x = 2; y = 2; z = 0 (meters)
+- stmap: pose offset: x = 2; y = 2; z = 0 (meters)
+- umap: pose offset: x = 1.75; y = 2; z = 0 (meters)
+- xmap: pose offset: x = 2; y = 2; z = 0 (meters) 
+- ymap: pose offset: x = 2; y = 2; z = 0 (meters)
+
+Go back to the "World" tab, in the left menu. Select the corresponding map model in the "Models" section, and edit the pose property (x,y,z) with the information above.  
+
+Start the simulation.   
+
+
+
+# ----------------------------------------------------------------------------- 
+# Operate with real TurtleBot robot 
+# ----------------------------------------------------------------------------- 
+
+1) Connect to a robot via secure-shell protocol (ssh): 
+>> ssh pi@192.168.1.200 	# or 192.168.1.201 for 2nd robot   
+
+2) Startup ROS server
+>> roslaunch turtlebot3_bringup turtlebot3_robot.launch 
+
+Wait for startup, while a set of log messages are being shown. Proceed after receiving ‘[INFO][xxx]: Calibration End’ status. The ROS server is now running.
+The shell session should remain open during the entire operation with the robot. 
+For terminate ROS server, press: [ctrl + c] 
+
+3) Connect using MatLab 
+Update your code with updated connection settings:
+IP_TURTLEBOT = "192.168.1.200";        		% TurtleBot IP
+IP_HOST_COMPUTER = "192.168.1.xxx";    		% local machine IP
+tbot = TurtleBot3(IP_TURTLEBOT, IP_HOST_COMPUTER);	% init connection
+
+
+
+# ----------------------------------------------------------------------------- 
+# Compile SensorState.msg ROS Message (access to encoders data w/ real TurtleBot)
+# ----------------------------------------------------------------------------- 
+
+Only supported in linux64 and mac64 systems.  Requires python** and cmake. 
+(** Matlab2021b requires python 2.7. Matlab2022b requires python 3.9).     
+
+- Check which python and cmake versions are installed (and detected by MatLab):
+TurtleBot3(‘check-versions’);  
+If packages are installed but not detected, go to the setupPath() function (in TurtleBot3.m ) and modify the PATH settings according to your system. 
+After that run: TurtleBot3('setup-path'); 
+
+- Compile auxiliar sensors-state ROS message: 
+TurtleBot3('setup-sensors-msg'); 
+
+- Check if new ROS message is available:
+TurtleBot3('check-sensors-msg'); 
+
+
+
+
+
+# ----------------------------------------------------------------------------- 
+# Versions Update Notes
+# ----------------------------------------------------------------------------- 
+
+# ------------------------------------- 
+# v09d (17/04/2023)
+# ------------------------------------- 
+
+- updated rootfolder basename: SRA TurtleBot v0x to TurtleBot3 v09d.
+- added max range (optional input argument) to getInRangeLidarDataIdx(.) and getOutRangeLidarDataIdx(.).
+- updated Gazebo simulation control functions:
+    - gazeboResume(.) - unpause physics simulation - overload of gazeboUnPause(.)
+    - added color options (diffuse material color) in: 
+        - gazeboPlace3DCube(.).
+        - gazeboPlace3DCylinder(.).
+        - gazeboPlace3DCardboardBox(.).
+- added empty 2D images to maps folder. 
+- rename cardboard object (image_editor_scr).
+- updates to several function names -> standardization according to readSensor(.) - getSensorData(.).
+    - readEncoders(.), getEncodersData(.).
+    - readEncodersWithNoise(.), getEncodersDataWithNoise().
+    - readEncodersTicks(.), getEncodersDataTicks().
+    - readLidar(.), getLidarData(.).
+- removed [scanMsg, xydata, angles] = readLidar_(obj)   % backward compatibility 2022
+- added readLidar__(.) updated readLidar() output format (only for internal use).  
+- updated demoGazeboObjects.m
+- updated demoLidar.m
+
+
+# ------------------------------------- 
+# v09c (27/03/2023)
+# ------------------------------------- 
+
+- added new Gazebo simulation control functions:
+    - gazeboPlace3DCube(.) - place 3D cube.
+    - gazeboPlace3DCylinder(.) - place 3D cylinder.
+    - gazeboPlace3DCardboardBox(.) - place 3D cardboard box.
+    - gazeboDeleteAllModels(.) - deletes all supported 3D objects.
+    - gazeboPause(.) - pause physics simulation.
+    - gazeboUnPause(.) - unpause physics simulation.
+    - added cube, cylinder sdf files.
+    - updated box (cardboard) sdf file. 
+    - updated install_maps.sh and uninstall_maps.sh scripts. 
+- added demoGazeboObjects.m - Gazebo control functions demo example.
+- (testing) - zreadLIDAR_(.) new LIDAR output format. 
+
+
+# ------------------------------------- 
+# v09b (13/03/2023)
+# ------------------------------------- 
+
+- added getGazeboMapName(.) function that returns the 3D map basename (map loaded at simulator startup). 
+- improved documentation (support for help/doc directives).
+- drawTurtleBot(.) added linewidth option. 
+- drawPolarHistogram(.) updated example notation.
+- map bug fixes (csqmap config files). 
+- suport for a scalar noise input in readEncodersDataWithNoise(.).
+- renamed readCompassData(.) -> readCompass(.). 
+
+
+# ------------------------------------- 
+# v09 (06/03/2023)
+# ------------------------------------- 
+
+- class name update: TurtleBot -> TurtleBot3.
+- added initEncoders() function that starts the simulated encoder data.    
+- added tools folder w/ extra functions:
+    - drawPolarHistogram(.) - draw polar histogram
+    - bresenham(.) - Bresenham line algorithm (by Aaron Wetzler, 2010)
+    - drawErrorElipse(.) - covariance error elipse plot   
+- added 3 new maps (rmap, xmap and ymap).
+    - xmap and ymap - standard 4x4 squared maps.  
+    - rmap - rectangular 6x4 map.
+    - updated install_maps.sh and uninstall_maps.sh scripts 
+
+
+# ------------------------------------- 
+# v08 (01/02/2023)
+# ------------------------------------- 
+
+- added readEncodersTicks() function, that provides access to real encoder data (when connect to real robot). It requires setup of SensorState.msg custom message, see bellow. 
+
+- (*) build custom SensorState.msg by calling constructor w/ single argument (options):  
+    - TurtleBot('check-versions');                % see package current python & cmake versions 
+    - TurtleBot('setup-path');                    % setup PATH locations (runs setupPath() function)  
+    - TurtleBot('setup-sensors-msg');             % setup sensors-state custom message 
+    - TurtleBot('check-sensors-msg');             % check if custom message is available
+
+    - added auxiliar custom message (sensors-state) setup functions
+        - setupPath();
+        - setupSensorStateMessage();
+
+    - (*) Note: available only in linux64 and mac64 systems. 
+
+- the getNumberTicksPerRevolution() provides the amount of ticks per revolution 
+
+- added readCompassData() function. 
+
+- overload of several functions:  
+    - getPose(.) -> readPose(.)
+    - getLidarData(.) -> readLidar(.)
+    - getIMUData(.) -> readIMU(.)
+    - getCompassData(.) -> readCompassData(.)
+
+- improved class Destructor, added rinit flag
+
+- updated drawTurtleBot(.) w/ content-obscured p-code. 
+
+
+# ------------------------------------- 
+# v07 (04/01/2023)
+# ------------------------------------- 
+
+- updated settings for two real TurtleBots:
+    - The 1st TurtleBot has a IP Address: 192.168.1.200
+    - The 2nd TurtleBot has a IP Address: 192.168.1.201
+- revised demos (demoPose.m, demoLidar.m, demoKeyboardOperation.m)
+- removed deprecated function readLidar_()
+- revised maps settings:
+    -> updated maps visual settings (all maps).
+    -> renamed map (csquare -> csqmap).
+    -> updated installation scripts.
+
+
+# ------------------------------------- 
+# v06 (03/06/2022)
+# ------------------------------------- 
+
+- support for resetPose() and setPose(.) while using the real TurtleBot robot.
+- new isRealRobot() logical function that returns true, if connected to the real robot.
+- new getBatteryLevel() function that returns the battery life (in percentage).
+- added getWheelRadius(.) that returns the wheel radius.
+- added readIMU() function that reads inertial IMU data (gyroscope and accelerometer).
+- bug fixes (readEncodersData from v05b).
+- added demo file: demoKeyboardSpeedCtl.m that allows to manually control the turtlebot's speed using the keyboard keys. 
+
+- map updates:
+    - extra 3D/2D maps (bxmap, mvmap and lcmap).
+    - updated installation scripts.
+
+
+# ------------------------------------- 
+# v05 (09/05/2022)
+# ------------------------------------- 
+
+- new readEncodersData() function that returns (simulated) incremental motion for each wheel.
+- new readEncodersDataWithNoise(noise_std) that allows to inject noise in encoders data.
+- new getWheelBaseline() that returns the baseline distance between wheels (b).  
+- minor update to drawTurtleBot(.) external file (optional).
+
+- map updates: 
+    -> new 3D/2D map (scmap).  
+    -> installation scripts for 3D maps & respective configuration files.
+    -> support for automatic placement of maps in Gazebo environment. 
+    -> run scripts to startup everything at once (user@ubuntu:~$ ./start-gazebo-scmap.sh).  
+
+Additional notes: 
+
+- the function [dsr, dsl, pose2D, timestamp] = readEncodersData(), returns: 
+    dsr - incremental motion of the right wheel (in meters)
+    dsl - incremental motion of the left wheel (in meters)
+    pose2D - [x,y,theta] 2D pose given by the turtlebot's odometry model
+    timestamp - data reading timestamp (in seconds)
+
+-> the pose2D vector can't be used for pose estimation purposes in lab04   
+
+-> the readEncodersData() and readPose() can't be used together in a loop. However, a single call of readPose(.) is required to startup the initial (internal) data of readEncodersData(), see the template bellow:
+
+-> % recomended template for lab04 
+tbot = TurtleBot(.)     % init TurtleBot
+tbot.setPose(.);        % set initial pose (don't use resetPose(.) in scmap)
+tbot.setVelocity(.);    % set velocities
+[.] = tbot.readPose();  % read pose once (required to startup the encoder data) 
+r = rateControl(5);     % init ratecontrol obj (loop at 5Hz)
+tic;  
+while (toc < 30)        % run for a given time (s)  
+        [.] = tbot.readEncodersData();      % read data from encoders
+        [.] = tbot.readLidar();             % read lidar data
+
+        % ...
+
+        % Display 
+        plot(.)
+        waitfor(r);     % adaptive pause
+end 
+tbot.stop();            % stop robot
+
+  
+
+
+
+# ------------------------------------- 
+# v04 (09/04/2022) 
+# ------------------------------------- 
+
+TurtleBot.m class v04 update:  
+
+- updated readLidar() functionality (added polar data readings, data selection and timestamp, see bellow).
+- new lidar data selection functions: getInRangeLidarDataIdx(.) and getOutRangeLidarDataIdx(.).  
+- the previous readLidar() routine is kept for backward compatibility, now called 'readLidar_()'.  
+- added timestamp to readPose() and readLidar().
+- reserved a IP for a 2nd TurtleBot robot.
+
+- external file w/ drawTurtleBot(.) function that allows to display a robot in a matlab figure (optional).  
+
+
+Additional notes: 
+
+The lidar readings data (lddata) is now a struct with the following fields:   
+    lddata.Ranges - (radial/polar) distance measurement [meters] (360 x 1) vector.
+    lddata.Angles - angular measurement [radians] (360 x 1) vector.
+    lddata.Cartesian - X/Y cartesian data (360 x 2) matrix.
+The lsdata (struct field) arrays could have 'Inf' (or zero) values to represent no laser reflections (representing too near or too far readings). Use getInRangeLidarDataIdx(.) and getOutRangeLidarDataIdx(.) functions to select the desired data (see demoLidar.m). 
+
+The pose reading and lidar scan now have timestamps. The diference between these measurements (together with the current estimate of the velocity) can be used to minimize the lidar data deviation when converting from lidar (centred) readings into world coordinates. 
+
+
+
+# ------------------------------------- 
+# v03 (13/03/2022) 
+# ------------------------------------- 
+
+TurtleBot.m class v03 update:  
+
+- Updated setPose(x,y,theta) and resetPose() functions (improvements and bug fixes).
+- The setVelocity(v,w) now clips the velocities (v,w) by the maximum allowed by the robot (v_max = 0.22 m/s, w_max = 2.84 rad/s).
+- The readLidar() function also returns readings to Cartesian coordinates.
+
+- map updates (see Map Notes.txt) 
+    - 4 startup maps (csquare, fmap, stmap and umap).  
+    - manual map placement under the Gazebo environment.
+
+# ------------------------------------- 
+# v02 (25/02/2022) 
+# ------------------------------------- 
+
+TurtleBot.m class v02 update: 
+
+- Usability improvements in the constructor:  the robot's object can be initialized as tbot = TurtleBot(IP_TURTLEBOT, IP_HOST_COMPUTER) directly (however, the standard constructor remains available). 
+- All angles are now expressed in radians. Please make the necessary adjustments on your code. 
+- New resetPose() method that allows to reset the location to the robot in gazebo (without the need of manual intervention).
+- New setPose(x,y,theta) method that allows to place the robot at a given pose. 
+- Note: resetPose() and  setPose(.) functions only work when using gazebo (not in the real TurtleBot robot). 
+
+The previously provided demos (demoPose.m and demoLidar.m) were also been updated with some of these features.  
+
+
+# ------------------------------------- 
+# v01 (14/02/2022) 
+# ------------------------------------- 
+
+- initial release. 
+
