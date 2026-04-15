@@ -17,38 +17,39 @@ normalizeAngle = @(angle) atan2( sin(angle), cos(angle) );
 
 % Define control constants 
 
-cStar = 1.0;              % far ahead path point (constant)
+cStar = 1.0;              % Far ahead path point 
 dStar = 0.5;       
-kv = 0.055;               % linear velocity proportional control constant
-ki = 0.011;               % linear velocity integral control constant
-ks = 0.7;                 % angular velocity proportional control constant
-searchWindow = 0.5;                 % (in meters) active window radius (influence region of replusive forces)
-v_max = 0.22;             % Turtlebot max linear velocity m/s
-w_max = 2.84;             % Turtlebot max angular velocity rad/s
-r_robot_m   = 0.12;       % radius of the robot
+kv = 0.055;               % Linear velocity proportional control constant
+ki = 0.011;               % Linear velocity integral control constant
+ks = 0.7;                 % Angular velocity proportional control constant
+searchWindow = 0.25;      % Active window radius [m] (influence region of replusive forces)
+v_max = 0.22;             % Turtlebot max linear velocity [m/s]
+w_max = 2.84;             % Turtlebot max angular velocity [rad/s]
+r_robot_m   = 0.105;      % Radius of the robot
 slow_radius = 0.2;
 
-% initial 2D pose (x,y,theta)
+% Initial 2D pose (x,y,theta)
 xri = 0.25; yri = 1; theta = 0;   
 tbot.setPose(xri, yri, theta);
 
-% set target location
+% Set target location
 t = [0.6 2;
      2 1.5;
      2 0.5;
-     %3.7 2;
-     1 3.5];
+     3.7 1.5;
+     1 3.7];
 n= size(t, 1);
-allTrajectory = []; %vector to save overall trajectory
+allTrajectory = []; % Vector to save overall trajectory
 
-% Load Map --------------------------------------
+% Load Map 
+
 %image = imread('maps/csqmap_grid1.png');
 image = imread('maps/fmap_grid5.png');
-% set map scale ratio (number of pixels that represent 1 meter) 
-mscale = 20;   % grid 1x1 
+% Set map scale ratio (number of pixels that represent 1 meter) 
+mscale = 20;   
 % Convert map into occupation grid format (obstacles = 1)
 map = 1 - double( image(:,:,1) ) ./ 255; 
-% get map size (rows, cols) 
+% Get map size (rows, cols) 
 [hm, wm] = size(map);
 [rowm, colm] = find(map == 1);
 
@@ -60,21 +61,21 @@ se = strel('disk', rad_px, 0);
 map_infl = imdilate(map > 0.5, se);   
 map_infl = double(map_infl);          
 
-% cell update
-[rowm2, colm2] = find(map_infl == 1); % virtual occupied cells locations
+% Cell update
+[rowm2, colm2] = find(map_infl == 1); % Virtual occupied cells locations
 
 
 
 maxIterations = 1000;       % Max number of iterations
-distEps = 0.05;             % termination error (5cm)            
-previousError=0;            %previous error initialized as zero
+distEps = 0.05;             % Termination error [m]          
+previousError=0;            % Previous error initialized as zero
 
-% trajectory buffer
+% Trajectory buffer
 trajectory = zeros(maxIterations, 3);
 
-% init ratecontrol obj (loop time control)
+% Init ratecontrol obj (loop time control)
 r = rateControl(5);    
-dt = r.DesiredPeriod;   % loop time period: dt = 1/5 Hz = 0.2s 
+dt = r.DesiredPeriod;   % Loop time period: dt = 1/5 Hz = 0.2s 
 
 
 % Main control loop
@@ -83,13 +84,14 @@ for i=1:n                       % Loop for every target point
     IntegralError = 0;          % Integral error initialized as zero before every new target
  for it=1:1:maxIterations
 
-    % read TurtleBot's pose (x, y, theta + timestamp) 
+    % Read TurtleBot's pose (x, y, theta + timestamp) 
     [xr, yr, theta, timestamp] = tbot.readPose();
     trajectory(it, :) = [xr, yr, theta];
 
     % Calculate distance to the current waypoint
     dGoal = sqrt((t(i,1) - xr)^2 + (t(i,2) - yr)^2);
-
+    
+    % Compute attractive and repulsive forces
     [Fa, Fr] = VFF ([xr, yr], t(i, :), map_infl, mscale, searchWindow);
 
     % Compute the overall force 
@@ -134,9 +136,9 @@ for i=1:n                       % Loop for every target point
     % Target orientation
     thetaStar= atan2(yStar-yr, xStar-xr);
 
-    % angular velocity (proportional control)
+    % Angular velocity (proportional control)
     w = ks* normalizeAngle(thetaStar-theta);
-    w = max(-w_max, min(w, w_max)); % ensures that the physical limits of the robot are not surpassed
+    w = max(-w_max, min(w, w_max)); % Ensures that the physical limits of the robot are not surpassed
 
 
 
@@ -145,7 +147,8 @@ for i=1:n                       % Loop for every target point
   
     figure(1); clf; hold on;
     %set(gcf,'Position',[170,700,800,600])  % modify the figure position and size
-    plot( rowm2./mscale, colm2./mscale,'k.')  % plot obstacles (as a collection of black dots)
+    %plot( rowm2./mscale, colm2./mscale,'k.')  % plot obstacles (as a collection of black dots)
+    plot(rowm2./mscale, colm2./mscale, 'ks', 'MarkerSize', 5, 'MarkerFaceColor', 'k');
     th = linspace(0, 2*pi, 200);
     xc = xr + searchWindow*cos(th);
     yc = yr + searchWindow*sin(th);
@@ -193,7 +196,8 @@ plot(xri, yri, 'go', 'MarkerFaceColor','g');
 plot(t(end,1), t(end,2), 'ro', 'MarkerFaceColor','r');          
 grid on;
 hold on;
-plot( rowm./mscale, colm./mscale,'k.')
+%plot( rowm./mscale, colm./mscale,'k.')
+plot(rowm./mscale, colm./mscale, 'ks', 'MarkerSize', 5, 'MarkerFaceColor', 'k');
 xlabel('x');
 ylabel('y');
 title('TurtleBot3 trajectory');
