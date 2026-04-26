@@ -1,0 +1,209 @@
+clearvars -except tbot
+
+% Start TurtleBot connection (tbot object)
+if ( ~exist("tbot", "var") )
+    IP_TURTLEBOT = "192.168.21.136";         
+    IP_HOST_COMPUTER = "192.168.21.1";       
+    tbot = TurtleBot3(IP_TURTLEBOT, IP_HOST_COMPUTER);   
+    if( tbot.getVersion() < 0.9 ) error ('TurtleBot v09 required'); end 
+end 
+
+% Normalize angle anonymous function: in range [-pi, pi]
+normalizeAngle = @(angle) atan2( sin(angle), cos(angle) );
+
+
+% Define control constants 
+
+cStar = 1.0;              % Far ahead path point
+dStar = 0.5;       
+kv = 0.055;              % Linear velocity proportional control constant
+%kv = 0.5;
+ki = 0.011;               % Linear velocity integral control constant
+ks = 0.7;                 % Angular velocity proportional control constant
+searchWindow = 1;         % Active window radius [m]
+v_max = 0.22;             % Turtlebot max linear velocity [m/s]
+w_max = 2.84;             % Turtlebot max angular velocity [rad/s]
+r_robot_m   = 0.105;      % Radius of the robot
+slow_radius = 0.2;
+
+% initial 2D pose (x,y,theta)
+xri = 0.25; yri = 1; theta = 0;   
+tbot.setPose(xri, yri, theta);
+
+% set target location
+t = [0.6 2;
+     2 1.5;
+     2 0.5;
+     1 3.5];
+n= size(t, 1);
+allTrajectory = []; % Vector to save overall trajectory
+
+% Load Map
+image = imread('maps/fmap_grid5.png');
+% Set map scale ratio (number of pixels that represent 1 meter) 
+mscale = 20;   % Grid 5x5 
+% Convert map into occupation grid format (obstacles = 1)
+map = 1 - double( image(:,:,1) ) ./ 255; 
+% Get map size (rows, cols) 
+[hm, wm] = size(map);
+[rowm, colm] = find(map == 1);
+
+
+% Obstacle augmentation
+rad_px = ceil(r_robot_m * mscale);    % Number of pixel to add
+se = strel('disk', rad_px, 0);
+% Obstacle inflation
+map_infl = imdilate(map > 0.5, se);   
+map_infl = double(map_infl);          
+
+% cell update
+[rowm2, colm2] = find(map_infl == 1); % Virtual occupied cells locations
+
+
+
+maxIterations = 1000;       % Max number of iterations
+distEps = 0.05;             % Termination error        
+previousError=0;            % previousError initialized as zero
+
+% trajectory buffer
+trajectory = zeros(maxIterations, 3);
+
+% init ratecontrol obj (loop time control)
+r = rateControl(5);    
+dt = r.DesiredPeriod;   % loop time period: dt = 1/5 Hz = 0.2s 
+
+
+% Main control loop
+
+for i=1:n                       % Loop for every target point
+    IntegralError = 0;          % Integral error initialized as zero before every new target
+ for it=1:1:maxIterations
+
+    % Read TurtleBot's pose (x, y, theta + timestamp) 
+    [xr, yr, theta, timestamp] = tbot.readPose();
+    trajectory(it, :) = [xr, yr, theta];
+
+    % Calculate distance to the current waypoint
+    dGoal = sqrt((t(i,1) - xr)^2 + (t(i,2) - yr)^2);
+
+    % Vector Field Histogram
+    [steerDir, h_smooth, bin_edges] = VFH([xr, yr], t(i, :), map_infl, mscale, searchWindow);
+
+    % If completely blocked (VFH returns NaN) stop the robot
+    if isnan(steerDir)
+        v = 0; w = 0;
+        tbot.setVelocity(v, w);
+        fprintf('Waypoint %d/%d: completely blocked, robot stopped.\n', i, n);
+        break;
+    end
+
+    % Set (xStar, yStar) -> pursuit path point
+    L = min(cStar, dGoal);
+    xStar = xr + L * cos(steerDir);
+    yStar = yr + L * sin(steerDir);
+
+
+
+    % PI controler 
+
+    % Compute pursuit distance error
+    if dGoal>dStar
+        Error = sqrt( (xStar - xr).^2 + (yStar - yr).^2 ) - dStar;
+    else
+        Error=dGoal;  % Near the goal the error is the distance from it since the pure pursuit points exceeds the target
+    end
+
+    Error = max(0, Error);     % Assures that the error doesn't become negative
+    if Error > 0
+        IntegralError = IntegralError + (Error + previousError) * dt / 2; % Trapezoidal integration method
+    end
+    previousError = Error;  % Error update for the next integration
+
+    % Linear velocity proportional-integral (PI) control
+     v = kv .* Error + ki .* IntegralError;
+     v = max(-v_max, min(v, v_max)); % Ensures that the physical limits of the robot are not surpassed
+
+     if dGoal <= distEps
+         v=0; w=0; tbot.setVelocity(v,w); break; % If the robot reaches the target it stops and exits the cicle
+     end
+
+     if i==n
+       v = v * min(1, max(0, (dGoal)/slow_radius)); % Near the final target it slows down gradually
+     end
+
+    % Target orientation
+    thetaStar= atan2(yStar-yr, xStar-xr);
+
+    % Angular velocity (proportional control)
+    w = ks* normalizeAngle(thetaStar-theta);
+    w = max(-w_max, min(w, w_max)); % ensures that the physical limits of the robot are not surpassed
+
+
+
+
+    % Display   
+  
+    figure(1); clf; hold on;
+    plot(rowm2./mscale, colm2./mscale, 'ks', 'MarkerSize', 5, 'MarkerFaceColor', 'k');
+    th = linspace(0, 2*pi, 200);
+    xc = xr + searchWindow*cos(th);
+    yc = yr + searchWindow*sin(th);
+    plot(xc, yc, 'b--', 'LineWidth', 1);
+    plot(trajectory(1:it,1), trajectory(1:it,2),'b')     % plot trajectory
+    drawTurtleBot(xr, yr, theta);             % draw Robot
+
+    % VFH polar histogram (drawn in world frame: theta = 0)
+    drawPolarHistogram(xr, yr, 0, h_smooth, bin_edges, searchWindow*0.6, 'r');
+
+    % Steering direction arrow
+    quiver(xr, yr, 0.3*cos(steerDir), 0.3*sin(steerDir), 0, ...
+           'r', 'LineWidth', 2, 'MaxHeadSize', 0.8);
+
+    plot( xStar, yStar, 'r*');  
+    plot( t(i, 1), t(i, 2), 'bx');      % target
+    quiver(0,0,1,0,0.5,'r')             % draw arrow for x-axis 
+    quiver(0,0,0,1,0.5,'g')             % draw arrow for y-axis 
+    axis([-0.1, hm/mscale, -0.1, wm/mscale]) % set limits for the current axes
+    grid on;                            % enable grid 
+    xlabel('x')                         % axis labels 
+    ylabel('y')
+    title('VFH Navigation')
+
+    % Adaptive pause
+    waitfor(r);
+
+    % Send velocity commands
+    tbot.setVelocity(v, w);
+    
+ end   %  Main control loop end 
+
+    traj_i = trajectory(1:it, :);
+    if ~isempty(allTrajectory)
+        allTrajectory = [allTrajectory; NaN NaN NaN];
+    end
+    allTrajectory = [allTrajectory; traj_i];
+    XY = allTrajectory(:,1:2);
+    mask = [true; sqrt(sum(diff(XY).^2,2)) < 0.25];
+    XY_fix = XY;
+    XY_fix(~mask,:) = NaN;
+    allTrajectory(:,1:2) = XY_fix;
+end
+figure;
+plot(allTrajectory(:,1), allTrajectory(:,2), 'b');
+hold on;
+plot(t(1:end-1,1), t(1:end-1,2), 'rx', 'MarkerSize', 8, 'LineWidth', 2); 
+plot(xri, yri, 'go', 'MarkerFaceColor','g');                   
+plot(t(end,1), t(end,2), 'ro', 'MarkerFaceColor','r');          
+grid on;
+hold on;
+plot(rowm./mscale, colm./mscale, 'ks', 'MarkerSize', 6, 'MarkerFaceColor', 'k');
+xlabel('x');
+ylabel('y');
+title('TurtleBot3 trajectory');
+legend('Trajectory', 'Waypoints', 'Start', 'End', 'Location', 'best');
+
+% Stop robot 
+tbot.stop()
+
+% Check statistics of past execution periods
+rStats = statistics(r);
