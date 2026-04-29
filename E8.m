@@ -6,8 +6,8 @@ if ( ~exist("tbot", "var") )
     IP_HOST_COMPUTER = "192.168.21.1";       
     tbot = TurtleBot3(IP_TURTLEBOT, IP_HOST_COMPUTER);   
     if( tbot.getVersion() < 0.9 ) error ('TurtleBot v09 required'); end 
-    %tbot.gazeboDeleteAllModels();
-    %tbot.gazeboPlace3DCylinder(2, 2, 0.5, 0.5, 'r');        
+    tbot.gazeboDeleteAllModels();
+    tbot.gazeboPlace3DCylinder(-2, 0, 1, 0.5, 'r');        
     %tbot.gazeboPlace3DCardboardBox(2, 3, 0);
 end 
 
@@ -22,14 +22,8 @@ xri = -6.5; yri = -3; theta = pi/2;
 tbot.setPose(xri, yri, theta);
 d = 0.0305;
 
-
-% Target waypoints
-t = [-6.5, 4; -2.5, 4; -2.5, 0.5; 3, 0.5; 3, 4.5; 1, 4.5; 6.5, 4.5; 6.5, -1; 5.5, -2];
-n = size(t, 1);
-allTrajectory = []; 
-
 % Map Setup 
-mscale = 20;              
+mscale    = 20;              
 worldSize = 20;             
 hm = worldSize*mscale; wm = worldSize*mscale;
 map = 0.5 * ones(hm, wm);
@@ -37,8 +31,47 @@ map = 0.5 * ones(hm, wm);
 % Use an offset to shift negative coordinates into positive matrix indices
 offset_m = 10; 
 
+% A*-generated waypoints 
+% Goal pose in world coordinates [m]
+xgoal = 3; ygoal = 4;
+
+% Number of waypoints to extract from the A* path 
+N_waypoints = 5;
+
+% Load the prior map used for planning 
+plannerData = load('turtlebot_map.mat');   % requires a previous mapping run
+plannerMap  = plannerData.occVisFinal;     % inflated binary map
+
+% Convert start / goal from world meters to grid indices 
+start_idx = [max(1, round((xri   + offset_m) * mscale)), ...
+             max(1, round((yri   + offset_m) * mscale))];
+goal_idx  = [max(1, round((xgoal + offset_m) * mscale)), ...
+             max(1, round((ygoal + offset_m) * mscale))];
+
+% Plan with A*
+path_px = A_star(plannerMap, start_idx, goal_idx);
+if isempty(path_px)
+    error('A* failed: no feasible path between start and goal.');
+end
+
+% Convert pixel path back to world meters
+path_m = (path_px / mscale) - offset_m;
+
+% Drop consecutive duplicates so cumulative arc length is strictly monotonic
+keep   = [true; sqrt(sum(diff(path_m).^2, 2)) > 0];
+path_m = path_m(keep, :);
+
+% Segment by equal arc length: N_waypoints + 1 samples, drop the start
+cumDist  = [0; cumsum(sqrt(sum(diff(path_m).^2, 2)))];
+totalLen = cumDist(end);
+sampleD  = linspace(0, totalLen, N_waypoints + 1);
+sampleD  = sampleD(2:end);                          % Skip the robot's start
+t        = interp1(cumDist, path_m, sampleD.');     % [N_waypoints x 2] in [m]
+n        = size(t, 1);
+allTrajectory = []; 
+
 % Setup the robot safety radius and inflation disk
-r_robot_m = 0.12; % Safety radius
+r_robot_m = 0.105; % Safety radius
 se = strel('disk', ceil(r_robot_m * mscale));
 
 % Initialize log odds values and control gains
@@ -54,8 +87,8 @@ w_max = 2.84;           % TurtleBot3 max angular velocity [rad/s]
 % PI linear-velocity control (pure-pursuit along the VFH steering direction)
 cStar = 1.0;            % Lookahead distance [m]
 dStar = 0.05;           % Standoff to lookahead point [m]
-kv    = 0.055;            % Linear velocity proportional gain
-ki    = 0.011;           % Linear velocity integral gain
+kv    = 0.055;          % Linear velocity proportional gain
+ki    = 0.011;          % Linear velocity integral gain
 
 % Graphics Setup 
 fig = figure(1); clf(fig);
@@ -64,7 +97,7 @@ insetAx = axes('Parent', fig, 'Position', [0.7, 0.7, 0.2, 0.2]);
 
 % Init ratecontrol obj 
 r  = rateControl(5);
-dt = r.DesiredPeriod;   % loop period for trapezoidal integration
+dt = r.DesiredPeriod;   % Loop period for trapezoidal integration
 
 % Main Control Loop
 for i=1:n
@@ -94,11 +127,11 @@ for i=1:n
         % Mapping
         map = MapUpdate(map, [map_x, map_y, theta_corr], lddata, mscale, l_occ, l_free, l0);
         
-        % Check distance to current waypoint (early termination)
+        % Check distance to current waypoint 
         dist = sqrt((x-t(i, 1))^2 + (y-t(i, 2))^2); 
         if dist <= Eps, break; end
         
-        % --- VFH: build the inflated occupancy map used by the planner ---
+        % VFH: build the inflated occupancy map used by the planner
         % VFH treats cells with value > 0.5 as obstacles. We build a binary
         % obstacle map from the probability grid (threshold = 0.65), then
         % inflate it by the robot safety radius so the histogram already
@@ -107,9 +140,7 @@ for i=1:n
         map_infl  = imdilate(occVisRaw, se);
         map_infl  = double(map_infl);    % VFH expects numeric input
 
-        % Robot/target positions in the SHIFTED frame used by the map.
-        % VFH returns an angle (steerDir), which is the same in either
-        % frame since translation does not change atan2 outputs.
+        % Robot/target positions in the shifted frame used by the house map
         robotPose_shift  = [x + offset_m, y + offset_m];
         targetPose_shift = [t(i,1) + offset_m, t(i,2) + offset_m];
 
@@ -126,23 +157,23 @@ for i=1:n
             break;
         end
 
-        % --- Control Law: PI on linear velocity, P on angular (VFH steering) ---
+        % Control Law: PI on linear velocity, P on angular
         % Pure-pursuit lookahead point along the VFH steering direction
         L     = min(cStar, dist);
         xStar = x + L * cos(steerDir);
         yStar = y + L * sin(steerDir);
 
-        % Distance error w.r.t. the lookahead (with standoff dStar);
-        % near the goal, switch to using dist directly so the controller
-        % does not overshoot when the lookahead exceeds the target.
+        % Distance error to the lookahead
+        % Near the goal, switch to using dist directly so the controller
+        % does not overshoot when the lookahead exceeds the target
         if dist > dStar
             Error = sqrt((xStar - x)^2 + (yStar - y)^2) - dStar;
         else
             Error = dist;
         end
-        Error = max(0, Error);    % keep Error non-negative
+        Error = max(0, Error);    % Keep Error non-negative
 
-        % Trapezoidal integration (only when Error > 0 -> simple anti-windup)
+        % Trapezoidal integration 
         if Error > 0
             IntegralError = IntegralError + (Error + previousError) * dt / 2;
         end
@@ -165,18 +196,25 @@ for i=1:n
        
         figure(1); clf; hold on;
         
-        % Main plot: obstacles, trajectory, target, robot
+        % Main plot
         plot(xObs, yObs, 'ks', 'MarkerSize', 4, 'MarkerFaceColor', 'k');
+
+        % Planned A* path
+        plot(path_m(:,1), path_m(:,2), '--', 'Color', [0.6 0.6 0.6], ...
+             'LineWidth', 1);
+        % All segmented waypoints (small dots) + current target (blue x)
+        plot(t(:,1), t(:,2), '.', 'Color', [0.3 0.3 0.8], 'MarkerSize', 10);
+
         plot(Trajectory(1:it, 1), Trajectory(1:it, 2), 'b');
         plot(t(i, 1), t(i, 2), 'bx', 'MarkerSize', 10, 'LineWidth', 2);     
         drawTurtleBot(x, y, theta);
 
-        % VFH search window (active perceptual radius)
+        % VFH search window
         th_circ = linspace(0, 2*pi, 200);
         plot(x + searchWindow*cos(th_circ), y + searchWindow*sin(th_circ), ...
              'b--', 'LineWidth', 1);
 
-        % VFH polar histogram (drawn in world frame -> theta = 0)
+        % VFH polar histogram
         drawPolarHistogram(x, y, 0, h_smooth, bin_edges, ...
                            searchWindow*0.6, 'r');
 
@@ -227,6 +265,8 @@ yObsFinal = (colm_final ./ mscale) - offset_m;
 
 % Plot the final obstacles and the full trajectory taken by the robot
 plot(xObsFinal, yObsFinal, 'k.', 'MarkerSize', 6, 'DisplayName', 'Obstacles');
+plot(path_m(:,1), path_m(:,2), '--', 'Color', [0.6 0.6 0.6], ...
+     'LineWidth', 1, 'DisplayName', 'A* path');
 plot(allTrajectory(:,1), allTrajectory(:,2), 'b-', 'LineWidth', 1.5, 'DisplayName', 'Trajectory');
 plot(t(1:end-1, 1), t(1:end-1, 2), 'rx', 'MarkerSize', 15, 'LineWidth', 2, 'DisplayName', 'Waypoints'); 
 plot(xri, yri, 'go', 'MarkerSize', 8, 'MarkerFaceColor', 'g', 'DisplayName', 'Start');                             
@@ -244,6 +284,6 @@ legend('show', 'Location', 'best');
 % Stop robot 
 tbot.stop();
 
-% Save the exact binary map and scale variables directly to a .mat file
-filename = 'turtlebot_map.mat';
-save(filename, 'map', 'occVisFinal', 'mscale', 'worldSize');
+% % Save the exact binary map and scale variables directly to a .mat file
+% filename = 'turtlebot_map.mat';
+% save(filename, 'map', 'occVisFinal', 'mscale', 'worldSize');
